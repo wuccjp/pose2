@@ -2,123 +2,163 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>WebCam 人體骨架（紅點）Demo</title>
+<title>WebCam 人體骨架（上 3/4 + 訊息區 1/4）</title>
 <style>
-  body,html{margin:0;padding:0;height:100%;overflow:hidden;background:#111}
-  #wrapper{position:relative;width:100%;height:100%}
-  video,canvas{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+  /* ---------- 版面佈局 ---------- */
+  html,body {margin:0;padding:0;height:100%;font-family:Arial,Helvetica,sans-serif;}
+  #app {display:flex;flex-direction:column;height:100%;background:#111;color:#fff;}
+
+  /* 上方 3/4：影像 + 骨架 */
+  #video-wrapper{
+    position:relative;
+    flex:3;                /* 3/4 高度 */
+    overflow:hidden;
+  }
+  video, canvas{
+    position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;
+  }
+
+  /* 下方 1/4：訊息區 */
+  #msg-box{
+    flex:1;                /* 1/4 高度 */
+    padding:0.8rem 1rem;
+    background:#222;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:1.2rem;
+    line-height:1.4;
+    text-align:center;
+    overflow:auto;
+  }
 </style>
 </head>
+
 <body>
-<div id="wrapper">
-  <video id="video" playsinline autoplay muted></video>
-  <canvas id="canvas"></canvas>
+<div id="app">
+  <!-- 上方 3/4 -->
+  <div id="video-wrapper">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- 下方 1/4 訊息區 -->
+  <div id="msg-box">正在載入相機…</div>
 </div>
 
-<!-- MediaPipe Pose 核心腳本 -->
+<!-- MediaPipe Pose CDN -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.5/drawing_utils.js"></script>
 
 <script>
-/* -------------------------------------------------
-   1️⃣ 取得相機影像
-   ------------------------------------------------- */
-const video = document.getElementById('video');
+/* =========================================================
+   1️⃣ 取得相機
+   ========================================================= */
+const video  = document.getElementById('video');
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+const ctx    = canvas.getContext('2d');
+const msgBox = document.getElementById('msg-box');
 
 async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user' }, // 前鏡頭（手機）或 webcam
-    audio: false
-  });
-  video.srcObject = stream;
-  await video.play();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user' },   // 前鏡頭
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
 
-  // canvas 與 video 同大小
-  canvas.width  = video.videoWidth;
-  canvas.height = video.videoHeight;
+    // 等到 video 的解析度確定後，再把 canvas 拉到同樣大小
+    video.addEventListener('loadedmetadata', () => {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+    });
+
+    msgBox.textContent = '相機已啟動，偵測中…';
+  } catch (e) {
+    console.error('相機錯誤', e);
+    msgBox.textContent = '⚠️ 無法取得相機，請檢查瀏覽器權限或使用 https 連線。';
+  }
 }
-startCamera().catch(e => console.error('相機權限錯誤:', e));
+startCamera();
 
-/* -------------------------------------------------
+/* =========================================================
    2️⃣ 初始化 MediaPipe Pose
-   ------------------------------------------------- */
+   ========================================================= */
 const pose = new Pose({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`
 });
 pose.setOptions({
-  modelComplexity: 1,               // 0: 快速  1: 預設  2: 精細（較慢）
+  modelComplexity: 1,
   smoothLandmarks: true,
   enableSegmentation: false,
-  smoothSegmentation: false,
   minDetectionConfidence: 0.5,
   minTrackingConfidence: 0.5
 });
 pose.onResults(onPoseResults);
 
-/* -------------------------------------------------
-   3️⃣ 每一幀送給 Pose 進行偵測
-   ------------------------------------------------- */
-const FPS = 30;  // 可自行調整，太高會吃掉 CPU
+/* =========================================================
+   3️⃣ 每幀送影格給 Pose（30 FPS）
+   ========================================================= */
+const FPS = 30;
 setInterval(() => {
-  pose.send({ image: video });
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    pose.send({ image: video });
+  }
 }, 1000 / FPS);
 
-/* -------------------------------------------------
-   4️⃣ 處理偵測結果：畫骨架 + 紅色關鍵點
-   ------------------------------------------------- */
+/* =========================================================
+   4️⃣ 繪製骨架 & 紅色控制點
+   ========================================================= */
 function onPoseResults(results) {
-  // 清空 canvas，先畫原始影像
+  // 1️⃣ 清空畫布 → 畫相機畫面
   ctx.save();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
+  // 2️⃣ 若沒有偵測到任何人，訊息區顯示提示
   if (!results.poseLandmarks) {
+    msgBox.textContent = '🤚 未偵測到人體，請站到畫面中央';
     ctx.restore();
     return;
   }
 
-  // ----- ① 畫骨架（線條） -----
-  // 顏色可自行改，這裡用半透明綠色
+  // 3️⃣ 畫骨架（綠線）
   drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
     color: 'rgba(0,255,0,0.6)',
     lineWidth: 4
   });
 
-  // ----- ② 畫關鍵點（全部以紅點） -----
-  // radius: 6px，填充紅色、外框白色
-  results.poseLandmarks.forEach(point => {
-    const x = point.x * canvas.width;
-    const y = point.y * canvas.height;
+  // 4️⃣ 畫紅色控制點
+  results.poseLandmarks.forEach(pt => {
+    const x = pt.x * canvas.width;
+    const y = pt.y * canvas.height;
 
-    // 外圈（白色）提升辨識度
+    // 白色外圈（提升可視性）
     ctx.beginPath();
     ctx.arc(x, y, 6, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
 
-    // 內圈（紅色）即「控制點」
+    // 紅色內圈 → 真正的「控制點」
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fillStyle = '#ff0000';
     ctx.fill();
   });
 
-  ctx.restore();
-}
+  // ==== 5️⃣ 例子：根據右手是否抬起改變訊息區文字 ====
+  const rightWrist   = results.poseLandmarks[15]; // 右手腕
+  const rightShoulder = results.poseLandmarks[11]; // 右肩
+  const isRightHandUp = rightWrist && rightShoulder && rightWrist.y < rightShoulder.y;
 
-/* -------------------------------------------------
-   5️⃣ 若想要把關鍵點名稱印出（可選）
-   ------------------------------------------------- */
-function drawLandmarkNames(landmarks) {
-  ctx.font = '12px Noto Sans TC';
-  ctx.fillStyle = '#fff';
-  landmarks.forEach((pt, idx) => {
-    const x = pt.x * canvas.width;
-    const y = pt.y * canvas.height;
-    ctx.fillText(idx, x + 5, y - 5); // 直接印出索引號
-  });
+  if (isRightHandUp) {
+    msgBox.textContent = '✅ 右手已抬起！';
+  } else {
+    msgBox.textContent = '請舉起右手，訊息會即時顯示…';
+  }
+
+  ctx.restore();
 }
 </script>
 </body>
