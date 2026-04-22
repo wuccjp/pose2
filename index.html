@@ -1,34 +1,125 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8">
-  <title>右手抬起偵測 (MediaPipe Pose)</title>
-  <style>
-    body { margin:0; overflow:hidden; font-family:Arial,Helvetica,sans-serif; }
-    #container { position:relative; width:100vw; height:100vh; background:#000; }
-    video, canvas {
-      position:absolute; top:0; left:0;
-      width:100%; height:100%;
-      object-fit:cover;
-    }
-    #msg {
-      position:absolute; top:20px; left:50%; transform:translateX(-50%);
-      color:#fff; font-size:2rem; font-weight:bold;
-      text-shadow:0 0 8px rgba(0,0,0,0.7);
-      pointer-events:none;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>WebCam 人體骨架（紅點）Demo</title>
+<style>
+  body,html{margin:0;padding:0;height:100%;overflow:hidden;background:#111}
+  #wrapper{position:relative;width:100%;height:100%}
+  video,canvas{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+</style>
 </head>
 <body>
-<div id="container">
-  <video id="video" playsinline></video>
+<div id="wrapper">
+  <video id="video" playsinline autoplay muted></video>
   <canvas id="canvas"></canvas>
-  <div id="msg"></div>
 </div>
 
-<!-- MediaPipe Pose CDN -->
+<!-- MediaPipe Pose 核心腳本 -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.5/drawing_utils.js"></script>
-<script src="script.js"></script>
+
+<script>
+/* -------------------------------------------------
+   1️⃣ 取得相機影像
+   ------------------------------------------------- */
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user' }, // 前鏡頭（手機）或 webcam
+    audio: false
+  });
+  video.srcObject = stream;
+  await video.play();
+
+  // canvas 與 video 同大小
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+}
+startCamera().catch(e => console.error('相機權限錯誤:', e));
+
+/* -------------------------------------------------
+   2️⃣ 初始化 MediaPipe Pose
+   ------------------------------------------------- */
+const pose = new Pose({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`
+});
+pose.setOptions({
+  modelComplexity: 1,               // 0: 快速  1: 預設  2: 精細（較慢）
+  smoothLandmarks: true,
+  enableSegmentation: false,
+  smoothSegmentation: false,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+pose.onResults(onPoseResults);
+
+/* -------------------------------------------------
+   3️⃣ 每一幀送給 Pose 進行偵測
+   ------------------------------------------------- */
+const FPS = 30;  // 可自行調整，太高會吃掉 CPU
+setInterval(() => {
+  pose.send({ image: video });
+}, 1000 / FPS);
+
+/* -------------------------------------------------
+   4️⃣ 處理偵測結果：畫骨架 + 紅色關鍵點
+   ------------------------------------------------- */
+function onPoseResults(results) {
+  // 清空 canvas，先畫原始影像
+  ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+  if (!results.poseLandmarks) {
+    ctx.restore();
+    return;
+  }
+
+  // ----- ① 畫骨架（線條） -----
+  // 顏色可自行改，這裡用半透明綠色
+  drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
+    color: 'rgba(0,255,0,0.6)',
+    lineWidth: 4
+  });
+
+  // ----- ② 畫關鍵點（全部以紅點） -----
+  // radius: 6px，填充紅色、外框白色
+  results.poseLandmarks.forEach(point => {
+    const x = point.x * canvas.width;
+    const y = point.y * canvas.height;
+
+    // 外圈（白色）提升辨識度
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+
+    // 內圈（紅色）即「控制點」
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff0000';
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+/* -------------------------------------------------
+   5️⃣ 若想要把關鍵點名稱印出（可選）
+   ------------------------------------------------- */
+function drawLandmarkNames(landmarks) {
+  ctx.font = '12px Noto Sans TC';
+  ctx.fillStyle = '#fff';
+  landmarks.forEach((pt, idx) => {
+    const x = pt.x * canvas.width;
+    const y = pt.y * canvas.height;
+    ctx.fillText(idx, x + 5, y - 5); // 直接印出索引號
+  });
+}
+</script>
 </body>
 </html>
