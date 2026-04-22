@@ -1,0 +1,31 @@
+目標
+在瀏覽器裡使用 WebCam 取得即時影像，利用人體姿態偵測模型擷取骨架資訊，當偵測到 右手抬高 時在畫面上顯示文字「右手」。
+
+下面提供一個完整的 HTML + JavaScript 範例，使用 Google 官方的 MediaPipe Pose（基於 WebAssembly + WebGL）——它比 TensorFlow.js 的 PoseNet 更快、精度更好。
+
+若你想改用 PoseNet，只要把 @mediapipe/pose 改成 @tensorflow-models/posenet，核心邏輯相同。
+
+1. 整體流程概圖
+
+
+WebCam (getUserMedia) ──► Video Element
+          │
+          ▼
+  MediaPipe Pose (JS API)  ──► 取得 33 個關鍵點座標
+          │
+          ▼
+  判斷右手是否「抬起」 (右手腕 y < 右肩 y)
+          │
+          ▼
+  Canvas 繪製骨架 + 文字「右手」 (若條件成立)
+2. 必備檔案與依賴
+檔案作用
+index.html
+主頁、載入腳本、顯示 Video & Canvas
+script.js
+核心邏輯：開啟相機、呼叫 MediaPipe、繪製與判斷
+@mediapipe/pose
+MediaPipe Pose 的 JavaScript 套件（CDN 直接引用）
+
+
+只要一個 HTML 檔案即可跑起來，所有程式碼都寫在同一頁，方便測試。
