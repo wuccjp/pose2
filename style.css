@@ -1,0 +1,43 @@
+/* 清除預設邊距，禁止捲動 */
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #0a0a0a;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+/* 確保 p5 畫布置中顯示 */
+canvas {
+    display: block;
+    margin: 0 auto;
+}
+
+/* 載入遮罩：讓使用者在模型準備時有視覺回饋 */
+#loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    color: #00ff96;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    transition: opacity 0.5s ease;
+    pointer-events: none; /* 載入後不阻礙點擊 */
+}
+
+/* 當程式準備好時，透過 sketch.js 隱藏這個遮罩 (選配) */
+.hidden {
+    opacity: 0;
+}
+
+.sub-text {
+    font-size: 14px;
+    color: #888;
+    margin-top: 10px;
+}
